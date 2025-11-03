@@ -277,6 +277,14 @@ MIT License - 详见 [LICENSE](LICENSE) 文件
 
 欢迎提交 Issue 和 Pull Request!
 
+---
+
+## Marketplace
+
+本项目已上架至[自建 Marketplace](https://github.com/lostabaddon/CCMarketplace)，其中还会不断更新和上架更多 Plugin，敬请期待！
+
+---
+
 ## 更新日志
 
 ### v1.0.0 (2025-11-03)
