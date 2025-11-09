@@ -1,295 +1,271 @@
-# Complex Mission Manager - 智能多级任务拆分和并行执行系统
+# Complex Mission Manager - Intelligent Multi-Level Task Decomposition and Parallel Execution System
 
-- 版本: 1.0.1
+- Version: 1.0.1
 
-一个强大的 Claude Code Plugin,能够自动将复杂任务拆分为可并行执行的任务组,并通过多级 Agent 协作高效完成。
+A powerful Claude Code Plugin that can automatically decompose complex tasks into groups that can be executed in parallel and efficiently complete them through multi-level agent collaboration.
 
-## 作者
+## Author
 
 LostAbaddon
 - Email: lostabaddon@gmail.com
 - Website: https://lostabaddon.github.io/
 
-## 功能特性
+## Features
 
-### 🎯 核心功能
+### 🎯 Core Capabilities
 
-- **智能任务拆分**: 自动分析复杂任务并拆分为可并行执行的任务组
-- **多级 Agent 协作**: 三层 Agent 架构确保任务高效执行
-- **并行任务执行**: 最大化利用并行能力,提升执行效率
-- **自动 Git 分支管理**: 在 git 仓库中自动创建和切换到专用开发分支
-- **完整执行日志**: WorkLog.md 记录完整的执行过程,便于追溯和调试
+- **Intelligent task decomposition**: Automatically analyzes complex requests and breaks them into task groups that can run in parallel
+- **Multi-level agent collaboration**: A three-layer agent architecture that keeps execution efficient
+- **Parallel task execution**: Maximizes parallel capacity to improve throughput
+- **Automatic Git branch management**: Automatically creates and switches to a dedicated development branch inside Git repositories
+- **Complete execution logs**: `WorkLog.md` tracks the entire execution process for easy auditing and troubleshooting
 
-### 🏗️ 三层 Agent 架构
+### 🏗️ Three-Layer Agent Architecture
 
-#### 任务规划器 (task-assigner)
-- 接收用户的复杂任务
-- 分析任务依赖关系和资源冲突
-- 拆分为可并行执行的任务组
-- 并行启动多个任务执行管理器
-- 汇总所有任务组的执行结果
+#### Task Assigner (`task-assigner`)
+- Receives the user's complex mission
+- Analyzes task dependencies and resource conflicts
+- Decomposes the mission into parallelizable task groups
+- Launches multiple task planners in parallel
+- Aggregates the outcomes from all task groups
 
-#### 任务执行管理器 (task-planner)
-- 接收并行任务组的详细信息
-- 管理 Git 分支(auto_develop_YYYY_MM_DD)
-- 创建和维护 WorkLog.md 执行日志
-- 将任务拆分为原子性子任务
-- 顺序调用子任务执行器完成各子任务
-- 审查完成情况并生成执行简报
+#### Task Planner (`task-planner`)
+- Receives the detailed information for a parallel task group
+- Manages Git branches (`auto_develop_YYYY_MM_DD`)
+- Creates and maintains the execution log `WorkLog.md`
+- Breaks the group into atomic subtasks
+- Sequentially invokes the task executor for each subtask
+- Reviews the final results and produces a briefing
 
-#### 子任务执行器 (task-executor)
-- 执行具体的原子性子任务
-- 在 WorkLog.md 中以"队员"身份记录过程
-- 严格遵守工作目录约束
-- 向任务执行管理器汇报结果
+#### Task Executor (`task-executor`)
+- Executes specific atomic subtasks
+- Logs the process in `WorkLog.md` as a "teammate"
+- Strictly adheres to the working directory constraints
+- Reports results back to the task planner
 
-### 📋 任务拆分原则
+### 📋 Principles for Task Decomposition
 
-#### 可以并行执行的任务
-- ✅ 纯读取操作(文件读取、网络搜索、网页分析)
-- ✅ 对不同文件夹的文件进行修改操作
-- ✅ 完全独立且互不影响的任务
+#### Tasks that can be run in parallel
+- ✅ Read-only operations (file reads, web searches, web page analysis)
+- ✅ Modifications to files located in different directories
+- ✅ Fully independent tasks that do not affect each other
 
-#### 不能并行执行的任务
-- ❌ 可能修改同一文件的任务
-- ❌ 存在明确依赖关系的任务
-- ❌ 需要共享状态的任务
+#### Tasks that cannot be run in parallel
+- ❌ Tasks that may modify the same file
+- ❌ Tasks with explicit dependencies
+- ❌ Tasks that require shared state
 
-### 🔄 工作流程
+### 🔄 Workflow
 
 ```
-用户提交复杂任务
+User submits a complex mission
         ↓
-task-assigner 分析并拆分为并行任务组
+Task assigner analyzes and splits into parallel task groups
         ↓
-并行启动多个 task-planner ────┬──── 任务组 1
-                            ├──── 任务组 2
-                            └──── 任务组 3
+Parallel launch of multiple task planners ────┬──── Task Group 1
+                                            ├──── Task Group 2
+                                            └──── Task Group 3
         ↓
-每个 task-planner:
-  1. 切换 Git 分支
-  2. 创建 WorkLog.md
-  3. 拆分子任务
-  4. 顺序调用 SubAgent C ────┬──── 子任务 1
-                            ├──── 子任务 2
-                            └──── 子任务 3
-  5. 审查并生成简报
+Each task planner:
+  1. Switches Git branches
+  2. Creates WorkLog.md
+  3. Decomposes into subtasks
+  4. Sequentially invokes SubAgent C ────┬──── Subtask 1
+                                       ├──── Subtask 2
+                                       └──── Subtask 3
+  5. Reviews the results and prepares a briefing
         ↓
-task-assigner 汇总所有简报
+Task assigner aggregates all briefings
         ↓
-向用户报告执行结果
+Reports the execution results to the user
 ```
 
-## 使用场景
+## Use Cases
 
-### 场景 1: 信息收集和文档整理
+### Scenario 1: Information gathering and documentation
 ```
-用户: "帮我收集关于 AI 大模型的最新信息,同时整理项目文档"
+User: "Collect the latest information about AI large language models and tidy up the project documentation at the same time."
 
-拆分为:
-- 任务组 1: AI 大模型信息收集(网络操作)
-- 任务组 2: 项目文档整理(本地文件操作)
-```
-
-### 场景 2: 全栈网站开发
-```
-用户: "开发一个博客网站,包含前端和后端"
-
-拆分为:
-- 任务组 1: 后端开发(backend/ 目录)
-- 任务组 2: 前端开发(frontend/ 目录)
+Decomposed into:
+- Task Group 1: AI large model research (network operations)
+- Task Group 2: Project documentation cleanup (local file operations)
 ```
 
-### 场景 3: 多模块功能开发
+### Scenario 2: Full-stack web development
 ```
-用户: "添加用户认证、数据分析和通知系统三个功能模块"
+User: "Build a blog website with both frontend and backend."
 
-拆分为:
-- 任务组 1: 用户认证模块(auth/ 目录)
-- 任务组 2: 数据分析模块(analytics/ 目录)
-- 任务组 3: 通知系统(notifications/ 目录)
+Decomposed into:
+- Task Group 1: Backend development (`backend/` directory)
+- Task Group 2: Frontend development (`frontend/` directory)
 ```
 
-## 特色功能
+### Scenario 3: Multi-module feature development
+```
+User: "Add user authentication, data analytics, and notification system modules."
 
-### Git 分支自动管理
+Decomposed into:
+- Task Group 1: Authentication module (`auth/` directory)
+- Task Group 2: Analytics module (`analytics/` directory)
+- Task Group 3: Notification system (`notifications/` directory)
+```
 
-每个任务组会自动:
-1. 检查工作目录是否为 git 仓库
-2. 如果是,创建或切换到 `auto_develop_YYYY_MM_DD` 分支
-3. 在该分支上执行所有操作
-4. 如果不是 git 仓库,跳过分支操作继续执行
+## Highlight Features
 
-**注意**: 不会强制将非 git 目录初始化为仓库。
+### Automatic Git Branch Management
 
-### WorkLog.md 对话机制
+Each task group automatically:
+1. Checks whether the working directory is a Git repository
+2. If so, creates or switches to the `auto_develop_YYYY_MM_DD` branch
+3. Executes all operations on that branch
+4. If it is not a Git repository, skips Git operations and proceeds
 
-每个任务组都会生成 `WorkLog.md`,记录完整的执行过程:
+**Note**: The system never forces non-Git directories to be initialized as repositories.
 
-```markdown
-# 工作日志
+## Overall Status
+- Total task groups: 3
+- Completed successfully: 3
+- Partially completed: 0
+- Failed: 0
 
-**任务主题**: 开发用户认证模块
-**开始时间**: 2025-11-03 14:30:00
-**工作目录**: /path/to/project
+## Task Group Details
+
+### Task Group 1: Authentication module development
+**Status**: Success
+
+**Achievements**:
+- Created the foundational files for the authentication module
+- Implemented login and registration
+- Added JWT token verification
+
+**Deliverables**:
+- `auth/index.js`
+- `auth/middleware.js`
+- `auth/utils.js`
 
 ---
 
-## 任务详情
-{详细的任务说明}
-
----
-
-## 执行记录
-
-### 队长: 任务开始
-开始执行任务,准备拆分子任务。
-
-### 队长: 子任务拆分完成
-已将任务拆分为以下子任务:
-1. 创建认证模块基础文件
-2. 实现登录功能
-3. 实现注册功能
-...
-
-### 队员: 开始执行子任务
-{子任务执行过程}
-
-### 队员: 子任务执行完成
-{完成情况说明}
-
-### 队长: 任务完成
-所有子任务已执行完成,质量检查通过。
+{Other task groups...}
 ```
 
-### 任务执行报告
+## Installation
 
-执行完成后会生成结构化的报告:
-
-```markdown
-# 任务执行报告
-
-## 总体情况
-- 总任务组数: 3
-- 成功完成: 3
-- 部分完成: 0
-- 执行失败: 0
-
-## 各任务组详情
-
-### 任务组 1: 用户认证模块开发
-**状态**: 成功
-
-**完成情况**:
-- 创建了认证模块基础文件
-- 实现了登录和注册功能
-- 添加了 JWT 令牌验证
-
-**产出**:
-- auth/index.js
-- auth/middleware.js
-- auth/utils.js
-
----
-
-{其他任务组...}
-```
-
-## 安装
-
-将此 Plugin 复制到 Claude Code 的 plugins 目录:
+Copy this plugin into the Claude Code `plugins` directory:
 
 ```bash
 cp -r ComplexMissionManager ~/.claude/plugins/
 ```
 
-或添加到你的项目的 `.claude/plugins/` 目录。
+Alternatively, add it to your project's `.claude/plugins/` directory.
 
-## 配置
+## Configuration
 
-无需额外配置,安装后即可使用。
+No extra configuration is required—just install and start using it.
 
-## 技术架构
+## Technical Architecture
 
-### Agent 通信流程
+### Agent Communication Flow
 
 ```
 task-assigner
-    ↓ (并行调用)
+    ↓ (parallel invocation)
 task-planner × N
-    ↓ (顺序调用)
+    ↓ (sequential invocation)
 task-executor × M
 ```
 
-## 最佳实践
+## Best Practices
 
-### 1. 任务描述清晰
+### 1. Provide clear task descriptions
 
-提供清晰详细的任务描述,包括:
-- 具体目标
-- 约束条件
-- 预期产出
-- 质量要求
+Include details such as:
+- Concrete objectives
+- Constraints
+- Expected deliverables
+- Quality requirements
 
-### 2. 合理指定工作目录
+### 2. Choose working directories wisely
 
-- 为不同类型的任务指定不同的工作目录
-- 避免多个任务操作同一目录的相同文件
-- 使用绝对路径而非相对路径
+- Assign different directories for different types of tasks
+- Avoid multiple tasks modifying the same files
+- Prefer absolute paths over relative paths
 
-### 3. 充分利用并行能力
+### 3. Fully leverage parallelism
 
-- 识别可以并行执行的任务
-- 将独立任务分离到不同任务组
-- 避免强行拆分有依赖的任务
+- Identify tasks that can safely run in parallel
+- Split independent work into separate task groups
+- Avoid forcing decomposition when dependencies exist
 
-### 4. 查看执行日志
+### 4. Review execution logs
 
-- 检查 WorkLog.md 了解详细执行过程
-- 通过日志诊断问题
-- 利用日志改进任务描述
+- Check `WorkLog.md` for detailed progress
+- Use the logs to diagnose issues
+- Refine task descriptions based on the logs
 
-## 注意事项
+## Notes
 
-### ⚠️ Git 操作
+### ⚠️ Git operations
 
-- 只在确认是 git 仓库时才执行 git 操作
-- 不会强制初始化非 git 目录
-- 分支命名格式固定为 `auto_develop_YYYY_MM_DD`
+- Only perform Git commands when the directory is already a Git repository
+- Never force-init a repository
+- Branch names always follow the `auto_develop_YYYY_MM_DD` pattern
 
-### ⚠️ 文件操作
+### ⚠️ File operations
 
-- SubAgent C 的所有写操作必须在指定工作目录下
-- 读操作没有限制,可以访问任何位置
-- 不要修改工作目录外的文件
+- All write operations by the task executor must stay within the working directory
+- Read operations are unrestricted and may access any location
+- Avoid modifying files outside the assigned working directory
 
-### ⚠️ 任务拆分
+### ⚠️ Task decomposition
 
-- 不要过度拆分简单任务
-- 单个任务也是有效的拆分结果
-- 优先保证任务的独立性而非并行度
+- Do not over-split simple tasks
+- A single task can be a valid decomposition result
+- Prioritize independence over parallelism
 
-## 许可证
+## Automation
 
-MIT License - 详见 [LICENSE](LICENSE) 文件
+The repository includes a scheduled GitHub Actions workflow that syncs the latest
+changes from the original project, translates any non-English content, and opens a
+pull request targeting the `language/english` branch. The translation step uses
+OpenAI Codex so that Markdown prose is rendered in polished, natural English and
+the workflow automatically approves and merges successful updates.
 
-## 贡献
+To enable the automation:
 
-欢迎提交 Issue 和 Pull Request!
+1. Create the `language/english` branch in the remote repository (a one-time
+   setup). Future workflow runs will fast-forward or create the branch as needed.
+2. Create a repository variable named `UPSTREAM_REPO` whose value is the
+   `<owner>/<repo>` slug of the original project (for example
+   `lostabaddon/ComplexMissionManager`).
+3. Optionally provide `UPSTREAM_BRANCH` if the upstream default branch is not
+   `main`.
+4. Add an `OPENAI_API_KEY` secret with access to Codex (`code-davinci-002`). The
+   workflow uses this key to translate and polish documentation segments.
+
+Manual runs are available from the **Actions** tab through the `Auto translate
+upstream content to English` workflow.
+
+## License
+
+MIT License — see the [LICENSE](LICENSE) file for details.
+
+## Contributing
+
+Issues and pull requests are welcome!
 
 ---
 
 ## Marketplace
 
-本项目已上架至[自建 Marketplace](https://github.com/lostabaddon/CCMarketplace)，其中还会不断更新和上架更多 Plugin，敬请期待！
+This project is listed on the [self-hosted Marketplace](https://github.com/lostabaddon/CCMarketplace). More plugins will be added there over time—stay tuned!
 
 ---
 
-## 更新日志
+## Changelog
 
 ### v1.0.0 (2025-11-03)
-- 初始版本发布
-- 实现三层 Agent 架构
-- 支持任务并行拆分和执行
-- 自动 Git 分支管理
-- WorkLog.md 执行日志
+- Initial release
+- Implements the three-layer agent architecture
+- Supports task decomposition and parallel execution
+- Automatic Git branch management
+- `WorkLog.md` execution logging

@@ -1,0 +1,88 @@
+name: Auto translate upstream content to English
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 3 * * *'
+
+permissions:
+  contents: write
+  pull-requests: write
+
+env:
+  TARGET_BRANCH: language/english
+  UPSTREAM_REPO: ${{ vars.UPSTREAM_REPO || '' }}
+  UPSTREAM_BRANCH: ${{ vars.UPSTREAM_BRANCH || 'main' }}
+
+jobs:
+  translate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate upstream configuration
+        run: |
+          if [ -z "$UPSTREAM_REPO" ]; then
+            echo "Repository variable UPSTREAM_REPO is required (e.g. owner/original-repo)." >&2
+            exit 1
+          fi
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Add upstream remote
+        run: |
+          git remote add upstream "https://github.com/${UPSTREAM_REPO}.git" || git remote set-url upstream "https://github.com/${UPSTREAM_REPO}.git"
+          git fetch upstream "$UPSTREAM_BRANCH"
+
+      - name: Update translation branch
+        run: |
+          git checkout "$TARGET_BRANCH" || git checkout -b "$TARGET_BRANCH"
+          git merge --ff-only "upstream/${UPSTREAM_BRANCH}" || {
+            echo "Fast-forward merge failed; attempting rebase."; \
+            git rebase "upstream/${UPSTREAM_BRANCH}";
+          }
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install translation dependencies
+        run: pip install 'openai>=0.28,<1'
+
+      - name: Translate repository content
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          python scripts/translate_to_english.py README.md agents commands
+
+      - name: Create pull request
+        id: cpr
+        uses: peter-evans/create-pull-request@v6
+        with:
+          commit-message: "chore: sync and translate upstream updates"
+          title: "chore: translate upstream updates"
+          body: |
+            ## Summary
+            - sync the latest upstream changes from ${{ env.UPSTREAM_REPO }}:${{ env.UPSTREAM_BRANCH }}
+            - translate and polish newly synced content to English using Codex
+
+            ## Testing
+            - automated via GitHub Actions
+          branch: automation/translate-updates
+          base: ${{ env.TARGET_BRANCH }}
+          delete-branch: true
+
+      - name: Auto-approve translation pull request
+        if: steps.cpr.outputs.pull-request-number != ''
+        uses: peter-evans/auto-approve@v3
+        with:
+          pull-request-number: ${{ steps.cpr.outputs.pull-request-number }}
+
+      - name: Enable auto-merge
+        if: steps.cpr.outputs.pull-request-number != ''
+        uses: peter-evans/enable-pull-request-automerge@v4
+        with:
+          pull-request-number: ${{ steps.cpr.outputs.pull-request-number }}
+          merge-method: squash
