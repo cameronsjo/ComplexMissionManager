@@ -1,0 +1,171 @@
+name: sync-and-translate-to-english
+
+on:
+  schedule:
+    - cron: "23 3 * * *" # nightly UTC
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  sync_translate:
+    runs-on: ubuntu-latest
+    env:
+      UPSTREAM_REPO: ${{ secrets.UPSTREAM_REPO }}
+      UPSTREAM_BRANCH: ${{ secrets.UPSTREAM_BRANCH || 'main' }}
+      FILES_GLOB: ${{ secrets.FILES_GLOB || 'docs/**/*.{md,mdx},**/*prompt*.{md,txt,json},**/*.{md,mdx,txt}' }}
+      TARGET_BRANCH: language/english
+
+    steps:
+      - name: Checkout fork
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Configure bot identity
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Add upstream and fetch
+        run: |
+          if [ -z "${UPSTREAM_REPO}" ]; then
+            echo "Missing required UPSTREAM_REPO secret (format: owner/repo)." >&2
+            exit 1
+          fi
+          git remote add upstream https://github.com/${UPSTREAM_REPO}.git || true
+          git fetch upstream --prune
+          git checkout -B ${TARGET_BRANCH} upstream/${UPSTREAM_BRANCH}
+
+      - name: Detect upstream SHA and short-circuit
+        id: up
+        run: |
+          UP_SHA=$(git rev-parse HEAD)
+          echo "up_sha=$UP_SHA" >> $GITHUB_OUTPUT
+          mkdir -p .github/.state
+          if [ -f .github/.state/last_upstream_sha ] && \
+             [ "$UP_SHA" = "$(cat .github/.state/last_upstream_sha)" ]; then
+            echo "No new upstream changes."
+            echo "changed=false" >> $GITHUB_OUTPUT
+          else
+            echo "$UP_SHA" > .github/.state/last_upstream_sha
+            echo "changed=true" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Commit upstream SHA marker (no-op if unchanged)
+        if: steps.up.outputs.changed == 'true'
+        run: |
+          git add .github/.state/last_upstream_sha || true
+          git commit -m "chore(sync): record upstream SHA" || true
+
+      - name: Compute translation set
+        id: files
+        run: |
+          IFS=',' read -ra GL <<< "${FILES_GLOB}"
+          set -o pipefail
+          > .codex-translate-files
+          for g in "${GL[@]}"; do
+            git ls-files -z -- $g | tr '\0' '\n' >> .codex-translate-files || true
+          done
+          sort -u -o .codex-translate-files .codex-translate-files
+          echo "count=$(wc -l < .codex-translate-files | tr -d ' ')" >> $GITHUB_OUTPUT
+
+      - name: Quick phrase fixes (deterministic)
+        run: |
+          if [ -s .codex-translate-files ]; then
+            while IFS= read -r f; do
+              [ -f "$f" ] || continue
+              sed -i \
+                -e 's/\bOnly use Chinese language\b/Only use English/g' \
+                -e 's/\bUse Chinese only\b/Use English only/g' \
+                -e 's/\bChinese language only\b/English only/g' \
+                "$f" || true
+            done < .codex-translate-files
+            git add -A
+            git commit -m "chore(lang): pre-normalize CN-only phrasing" || true
+          fi
+
+      - name: Run Codex to translate + clean English
+        id: codex
+        uses: openai/codex-action@v1
+        with:
+          openai-api-key: ${{ secrets.OPENAI_API_KEY }}
+          sandbox: workspace-write
+          prompt: |
+            You are a repo editor. Goal: ensure English-only docs/prompts.
+            Rules:
+            - Translate any non-English (esp. Chinese) text to clear, idiomatic English.
+            - NEVER translate code blocks, code identifiers, JSON keys, or CLI flags.
+            - Keep Markdown structure, lists, tables, headings, anchors.
+            - Preserve front-matter and metadata; do not add or remove fields.
+            - Normalize wording:
+              * Replace or remove any instruction that forces Chinese (e.g., "Only use Chinese language").
+              * Prefer concise imperative English.
+              * Fix obvious grammar without changing meaning.
+            - Do NOT refactor content outside of language/grammar/clarity.
+            - Keep diffs minimal.
+
+            Target files are enumerated in `.codex-translate-files`.
+            For each existing file in that list:
+              1) Read it.
+              2) Apply the rules above.
+              3) Write the edited content back to the same path.
+            When done, stage changes.
+
+            Output:
+            - A short summary of files updated and any notable wording normalizations.
+          codex-args: >
+            ["--plan","--parallel=4"]
+
+      - name: Commit translation edits (if any)
+        run: |
+          if ! git diff --cached --quiet; then
+            git commit -m "feat(lang): translate to English + normalize phrasing"
+          fi
+
+      - name: Push branch
+        run: |
+          git push --set-upstream origin ${TARGET_BRANCH} || git push
+
+      - name: Open/Update PR -> default branch with auto-merge
+        uses: peter-evans/create-pull-request@v6
+        with:
+          title: "English localization branch: ${TARGET_BRANCH}"
+          body: |
+            Automated sync from upstream `${{ env.UPSTREAM_REPO }}@${{ env.UPSTREAM_BRANCH }}` and CN→EN translation via Codex.
+            - Deterministic phrasing fixes applied.
+            - AI translation kept minimal and structure-safe.
+          branch: ${{ env.TARGET_BRANCH }}
+          base: ${{ env.UPSTREAM_BRANCH }}
+          commit-message: "sync(upstream)+lang(en): nightly"
+          labels: english, automation, codex
+          draft: false
+          delete-branch: false
+          signoff: false
+
+      - name: Enable auto-merge (squash) if available
+        if: always()
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ github.token }}
+          script: |
+            const { data: prs } = await github.rest.pulls.list({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              head: `${context.repo.owner}:${process.env.TARGET_BRANCH}`,
+              state: "open",
+            });
+            if (prs.length === 0) { return; }
+            const pr = prs[0];
+            try {
+              await github.request('PUT /repos/{owner}/{repo}/pulls/{pull_number}/auto-merge', {
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: pr.number,
+                merge_method: "squash"
+              });
+            } catch (e) {
+              core.info("Auto-merge not enabled or not permitted.");
+            }
