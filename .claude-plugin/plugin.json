@@ -1,7 +1,7 @@
 {
   "name": "complexMissionManager",
   "version": "1.0.1",
-  "description": "智能多级任务拆分和并行执行系统 - 自动将复杂任务拆分为可并行执行的任务组，并通过多级 Agent 协作完成",
+  "description": "Intelligent multi-level task decomposition and parallel execution system - automatically decomposes complex tasks into parallelizable task groups and coordinates them through multi-level agents",
   "author": {
     "name": "LostAbaddon",
     "email": "lostabaddon@gmail.com",
