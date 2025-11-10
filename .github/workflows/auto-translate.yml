@@ -1,0 +1,276 @@
+name: sync-and-translate-to-english
+
+on:
+  schedule:
+    - cron: "23 3 * * *" # nightly UTC
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  sync_translate:
+    runs-on: ubuntu-latest
+    env:
+      UPSTREAM_REPO: ${{ secrets.UPSTREAM_REPO }}
+      UPSTREAM_BRANCH: ${{ secrets.UPSTREAM_BRANCH || 'main' }}
+      TARGET_BRANCH: language/english
+
+    steps:
+      - name: Checkout fork
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Configure bot identity
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Check for upstream configuration
+        id: upstream_check
+        run: |
+          if [ -n "${UPSTREAM_REPO}" ]; then
+            echo "has_upstream=true" >> $GITHUB_OUTPUT
+            echo "Upstream repo configured: ${UPSTREAM_REPO}"
+          else
+            echo "has_upstream=false" >> $GITHUB_OUTPUT
+            echo "No upstream repo configured, will translate current branch"
+          fi
+
+      - name: Add upstream and fetch
+        if: steps.upstream_check.outputs.has_upstream == 'true'
+        run: |
+          git remote add upstream https://github.com/${UPSTREAM_REPO}.git || true
+          git fetch upstream --prune
+          git checkout -B ${TARGET_BRANCH} upstream/${UPSTREAM_BRANCH}
+
+      - name: Create translation branch from current branch
+        if: steps.upstream_check.outputs.has_upstream != 'true'
+        run: |
+          git checkout -B ${TARGET_BRANCH}
+
+      - name: Detect upstream SHA and short-circuit
+        if: steps.upstream_check.outputs.has_upstream == 'true'
+        id: up
+        run: |
+          UP_SHA=$(git rev-parse HEAD)
+          echo "up_sha=$UP_SHA" >> $GITHUB_OUTPUT
+          mkdir -p .github/.state
+          if [ -f .github/.state/last_upstream_sha ] && \
+             [ "$UP_SHA" = "$(cat .github/.state/last_upstream_sha)" ]; then
+            echo "No new upstream changes."
+            echo "changed=false" >> $GITHUB_OUTPUT
+          else
+            echo "$UP_SHA" > .github/.state/last_upstream_sha
+            echo "changed=true" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Commit upstream SHA marker
+        if: steps.upstream_check.outputs.has_upstream == 'true' && steps.up.outputs.changed == 'true'
+        run: |
+          git add .github/.state/last_upstream_sha || true
+          git commit -m "chore(sync): record upstream SHA" || true
+
+      - name: Run Codex to translate Claude Plugin to English
+        id: codex
+        uses: openai/codex-action@v1
+        with:
+          openai-api-key: ${{ secrets.OPENAI_API_KEY }}
+          sandbox: workspace-write
+          prompt: |
+            # Mission: Translate ComplexMissionManager Claude Plugin to English
+
+            ## Repository Context
+            This is a Claude Code Plugin for intelligent multi-level task decomposition and parallel execution.
+            It uses a 3-tier agent architecture (task-assigner → task-planner → task-executor).
+
+            All Chinese documentation must be translated to clear, technical English suitable for developers.
+
+            ## Files to Process
+
+            Translate ALL Chinese text in these files:
+            - README.md (main documentation)
+            - agents/task-assigner.md (agent definition)
+            - agents/task-planner.md (agent definition)
+            - agents/task-executor.md (agent definition)
+            - commands/assign.md (command definition)
+            - .claude-plugin/plugin.json (JSON metadata)
+
+            ## Critical Preservation Rules
+
+            ### DO NOT TRANSLATE:
+            1. **YAML frontmatter keys**: name, description, model, argument-hint
+            2. **JSON keys**: name, version, author, license, keywords, commands
+            3. **File paths**: ./commands/assign.md, ./agents/*
+            4. **Agent names**: task-assigner, task-planner, task-executor
+            5. **Technical identifiers**: WorkLog.md, auto_develop_*, complexMissionManager
+            6. **Git commands**: git branch, git checkout, etc.
+            7. **Code blocks**: Keep all code/shell examples unchanged
+            8. **Emoji indicators**: ✅ ❌ 🎯 🏗️ 📋 🔄 (keep as-is)
+            9. **Markdown structure**: Headers, lists, code fences, tables
+            10. **Author info**: LostAbaddon, email, URL
+
+            ### DO TRANSLATE:
+            1. **YAML frontmatter values** (description field content)
+            2. **JSON string values** (description in plugin.json)
+            3. **All prose/documentation** in markdown files
+            4. **Headers and section titles**
+            5. **List items and explanations**
+            6. **Inline comments** explaining concepts
+
+            ## Translation Quality Standards
+
+            - **Technical accuracy**: Use proper software engineering terminology
+            - **Developer-friendly**: Clear, concise imperative voice
+            - **Consistent terminology**:
+              - 任务 → "task"
+              - 子任务 → "subtask"
+              - 并行执行 → "parallel execution"
+              - 任务拆分 → "task decomposition"
+              - 工作目录 → "working directory"
+              - 执行日志 → "execution log"
+            - **Natural English**: Not word-for-word translation, but idiomatic English
+            - **Preserve structure**: Keep section organization and formatting
+
+            ## Special Cases
+
+            ### YAML Frontmatter (agents/*.md, commands/*.md)
+            ```yaml
+            ---
+            name: task-planner                    # DON'T translate
+            description: 任务规划器 - 能将...      # TRANSLATE the Chinese part
+            model: sonnet                         # DON'T translate
+            ---
+            ```
+
+            ### JSON Files (.claude-plugin/plugin.json)
+            ```json
+            {
+              "description": "智能多级任务..."    // TRANSLATE value only
+              "keywords": [...],                   // DON'T translate
+              "commands": ["./commands/..."]      // DON'T translate
+            }
+            ```
+
+            ### Workflow Diagrams
+            Keep ASCII art structure but translate Chinese labels:
+            ```
+            用户提交复杂任务  →  User submits complex task
+                    ↓                     ↓
+            ```
+
+            ## Execution Steps
+
+            1. **Scan repository** for all .md and .json files
+            2. **Read each file** and identify Chinese text
+            3. **Apply translation rules** based on file type
+            4. **Preserve all formatting** (YAML, JSON, markdown)
+            5. **Write back** to same file path
+            6. **Stage changes** with git add
+
+            ## Output Required
+
+            Provide a summary listing:
+            - Files translated
+            - Key terminology mappings used
+            - Any ambiguous terms that needed interpretation
+            - Total lines changed
+
+            ## Example Translations
+
+            **Before:**
+            ```markdown
+            ## 核心职责
+
+            1. 接收任务主题、详情和工作目录
+            2. 处理 Git 分支管理（如果工作目录是 git 仓库）
+            ```
+
+            **After:**
+            ```markdown
+            ## Core Responsibilities
+
+            1. Receive task title, details, and working directory
+            2. Handle Git branch management (if working directory is a git repository)
+            ```
+
+            Execute translation now.
+
+      - name: Commit translation edits
+        run: |
+          if ! git diff --cached --quiet; then
+            git commit -m "feat(lang): translate ComplexMissionManager plugin to English"
+          fi
+
+      - name: Check if there are changes to push
+        id: changes
+        run: |
+          git fetch origin ${TARGET_BRANCH} 2>/dev/null || true
+          if git diff --quiet origin/${TARGET_BRANCH}..HEAD 2>/dev/null; then
+            echo "No changes to push."
+            echo "has_changes=false" >> $GITHUB_OUTPUT
+          else
+            echo "Changes detected, will push and create PR."
+            echo "has_changes=true" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Push branch
+        if: steps.changes.outputs.has_changes == 'true'
+        run: |
+          git push --set-upstream origin ${TARGET_BRANCH} --force-with-lease
+
+      - name: Get fork default branch
+        if: steps.changes.outputs.has_changes == 'true'
+        id: fork_branch
+        run: |
+          FORK_BRANCH=$(git remote show origin | grep 'HEAD branch' | cut -d' ' -f5)
+          echo "branch=$FORK_BRANCH" >> $GITHUB_OUTPUT
+          echo "Fork default branch: $FORK_BRANCH"
+
+      - name: Create or update PR
+        if: steps.changes.outputs.has_changes == 'true'
+        run: |
+          # Prepare PR body
+          if [ "${{ steps.upstream_check.outputs.has_upstream }}" == "true" ]; then
+            PR_BODY="Automated sync from upstream \`${{ env.UPSTREAM_REPO }}@${{ env.UPSTREAM_BRANCH }}\` and Chinese→English translation via Codex.
+
+          ## Changes
+          - Synced with upstream commit: ${{ steps.up.outputs.up_sha }}
+          - Translated all documentation from Chinese to English
+          - Preserved YAML frontmatter, JSON structure, code blocks
+          - Maintained consistent technical terminology
+
+          🤖 Generated with GitHub Actions"
+          else
+            PR_BODY="Automated Chinese→English translation via Codex.
+
+          ## Changes
+          - Translated all documentation from Chinese to English
+          - Preserved YAML frontmatter, JSON structure, code blocks
+          - Maintained consistent technical terminology
+
+          🤖 Generated with GitHub Actions"
+          fi
+
+          # Check if PR already exists
+          EXISTING_PR=$(gh pr list --head ${TARGET_BRANCH} --base ${{ steps.fork_branch.outputs.branch }} --json number --jq '.[0].number')
+
+          if [ -n "$EXISTING_PR" ]; then
+            echo "Updating existing PR #$EXISTING_PR"
+            gh pr edit "$EXISTING_PR" --body "$PR_BODY"
+          else
+            echo "Creating new PR"
+            gh pr create \
+              --title "chore: translate ComplexMissionManager to English" \
+              --body "$PR_BODY" \
+              --base "${{ steps.fork_branch.outputs.branch }}" \
+              --head "${TARGET_BRANCH}" || {
+              echo "Failed to create PR with gh CLI. Branch pushed successfully to origin/${TARGET_BRANCH}"
+              echo "You can create the PR manually with:"
+              echo "  gh pr create --head ${TARGET_BRANCH} --base ${{ steps.fork_branch.outputs.branch }}"
+            }
+          fi
+        env:
+          GH_TOKEN: ${{ secrets.PAT_TOKEN || secrets.GITHUB_TOKEN }}
